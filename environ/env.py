@@ -1,30 +1,32 @@
 
+from typing import Dict, final
 
-from abc import ABC, abstractmethod
 
-'''
-@register_sensors(...)
-is the only way of attaching sensors to clients
-
-'''
-
-class BaseEnv(ABC):
-    def __init__(self):
-        pass
+class BaseEnv:
+    def __init__(self, path):
         self._shared_sim = None
+        self._env_path = path
 
-    def update(self):
+    def _update(self, action: str) -> Dict:
         '''
-        
+        update internal sim engine with action from actor
         '''
-        observes = []
+        observes = self._shared_sim.step(action)
+        return observes
     
-    @abstractmethod
-    def step(self):
-        pass
+    def post_process(self, observes: Dict):
+        '''
+        free pass by default, no processing of received raw sensor data
+        '''
+        return observes
 
-class Env:
-    def __init__(self):
-        pass
-    def step(self):
-        pass
+    @final
+    def step(self, action: str):
+        observes = self._update(action)
+        observes= self.post_process(observes)
+        return observes
+        
+
+class Env(BaseEnv):
+    def __init__(self, path):
+        super().__init__(path)
