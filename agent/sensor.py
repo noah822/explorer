@@ -24,7 +24,7 @@ def _setup_habitat_camera(uuid: str,
 
     return camera
 
-class BaseSensor(ABC):
+class BaseSensor:
     '''
     dummy wrapper of sensor subclasses,
     '''
@@ -32,9 +32,9 @@ class BaseSensor(ABC):
         super().__init__()
     def __call__(self):
         return self.init() 
-    @abstractmethod
+    
     def init(self):
-        pass
+        raise NotImplementedError()
 
 class RGBCamera(BaseSensor):
     def __init__(self, name: str,

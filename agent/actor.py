@@ -1,13 +1,10 @@
 import habitat_sim
 
 
-
-from abc import ABC, ABCMeta, abstractmethod
-
 from .sensor import BaseSensor
 from explorer.simulation.dispatcher import RayResources
 
-class BaseActor(ABC):
+class BaseActor:
     '''
     standard protocols of explorer actors
     '''
@@ -18,12 +15,11 @@ class BaseActor(ABC):
         self._sensors = None
 
     
-    @abstractmethod
     def step(self, *args, **kwargs):
         '''
         main entry point of explorer actor
         '''
-        pass
+        raise NotImplementedError()
 
     def register_resources(self, num_cpu, num_gpu=None):
         self._ray_resources = RayResources(num_cpu, num_gpu)
@@ -34,11 +30,16 @@ class BaseActor(ABC):
         return self
     
     def register_sensors(self, *args):
+        '''
+        Instantiation of habitat sensor should be postponed to remote ray worker,
+        because habitat's sensor class can not be serialized under pickle protocol,
+        which means that it can not be distributed over ray nodes
+        '''
         self._sensors = []
         for sensor_setter in args:
             assert issubclass(type(sensor_setter), BaseSensor), \
             'Your own implementation of sensor class should subclass `BaseSensor`'
-            self._sensors.append(sensor_setter())
+            self._sensors.append(sensor_setter)
         self._sensors = tuple(self._sensors)
         
         return self
