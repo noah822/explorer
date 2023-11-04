@@ -35,6 +35,10 @@ class ExecEngine:
     def __init__(self, context: Context):
         self.environ, self.actor = context.environ, context.actor
 
+        self._dependency = []
+
+    def _report_actor_progress(self):
+        return self.actor.report_progress()
 
     def _at_entry(self):
         # initiate habitat sensors, refer to doc in BaseActor for more info
@@ -61,24 +65,31 @@ class ExecEngine:
         environ: path
         '''
         backend_cfg = habitat_sim.SimulatorConfiguration()
-        backend_cfg.scene_id = self.environ._env_path
+        backend_cfg.scene_id = environ._env_path
 
         agent_config = habitat_sim.AgentConfiguration()
-        agent_config.sensor_specifications = self.actor._sensors
+        agent_config.sensor_specifications = actor._sensors
 
-        self.actor._shared_sim = self.environ._shared_sim = \
+        actor._shared_sim = environ._shared_sim = \
         habitat_sim.Simulator(
             habitat_sim.Configuration(backend_cfg, [agent_config])
         )
+
+    def _config_dependency(self, futures: List):
+        self._dependency = futures
+
+    def _sync_barrier(self):
+        res = ray.get(self._dependency)
+
 
 
 
 class BaseDispatcher:
     def __init__(self,
-                 binded_contexts: List[Context],
+                 contexts: List[Context],
                  global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0}):
         
-        self.contexts = binded_contexts
+        self.contexts = contexts
         assert _valid_dict_key(global_resources, ['num_gpu', 'num_cpu']), \
         'Invalid keys in @param global_resources, which only accepts `num_cpu` and `num_gpu`'
         self.global_resources = global_resources
@@ -87,21 +98,9 @@ class BaseDispatcher:
 
     def launch(self):
         # wrap into ray actors
-        worker_procs = []
-        for context in self.contexts:
-            num_cpu = context.actor._ray_resources.num_cpu
-            num_gpu = context.actor._ray_resources.num_gpu
-            worker_procs.append(
-                BaseDispatcher._wrap_into_remote_actor(
-                    ExecEngine, {'num_cpus':num_cpu, 'num_gpus':num_gpu}
-                ).remote(context)
-            )
-
+        worker_procs = self._init_worker_procs()
         futures = [proc.exec.remote() for proc in worker_procs]
-
         res = ray.get(futures)
-        print(res)
-
 
     def reap_futures(self):
         pass
@@ -138,23 +137,41 @@ class BaseDispatcher:
             avg_gpu = int(num_gpu_to_dist / len(non_allocate_gpu_actor))
             for actor in non_allocate_gpu_actor:
                 actor._ray_resources.num_gpu = avg_gpu
-        
-
-
+    
+    def _init_worker_procs(self):
+        worker_procs = []
+        for context in self.contexts:
+            num_cpu = context.actor._ray_resources.num_cpu
+            num_gpu = context.actor._ray_resources.num_gpu
+            worker_procs.append(
+                BaseDispatcher._wrap_into_remote_actor(
+                    ExecEngine, {'num_cpus':num_cpu, 'num_gpus':num_gpu}
+                ).remote(context)
+            )
+        return worker_procs
 
     @classmethod
     def _wrap_into_remote_actor(cls, engine, config):
         ray_remote_engine = ray.remote(**config)(engine)
         return ray_remote_engine
-        
-    @classmethod
-    def _wrap_into_remote_task(cls, py_fn, config):
-        pass
 
     @classmethod
     def _check_registeration():
         pass
 
+from .comm import Comm
+
+class GroupDispatcher(BaseDispatcher):
+    def __init__(self,
+                 contexts: List[Context],
+                 global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0}):
+        super().__init__(contexts, global_resources)
+
+    def launch(self):
+        worker_procs = super()._init_worker_procs()
+        comm = Comm(worker_procs)
+        Comm.broadcast_futures(worker_procs)
+        Comm.sync(worker_procs)
 
 
 '''
