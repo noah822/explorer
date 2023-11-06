@@ -3,7 +3,7 @@ import ray
 
 
 from dataclasses import dataclass
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Any
 
 
 Scalar = Union[int, float, None]
@@ -79,20 +79,24 @@ class ExecEngine:
         self._dependency = futures
 
     def _sync_barrier(self):
-        res = ray.get(self._dependency)
+        self._dependency = ray.get(self._dependency)
 
 
-
+DriverEngine = Any
+RayWrappedEngine = Any
 
 class BaseDispatcher:
     def __init__(self,
                  contexts: List[Context],
-                 global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0}):
+                 global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0},
+                 engine: DriverEngine=ExecEngine):
         
         self.contexts = contexts
         assert _valid_dict_key(global_resources, ['num_gpu', 'num_cpu']), \
         'Invalid keys in @param global_resources, which only accepts `num_cpu` and `num_gpu`'
         self.global_resources = global_resources
+
+        self.engine = engine
 
         self._distribute_resources()
 
@@ -145,7 +149,11 @@ class BaseDispatcher:
             num_gpu = context.actor._ray_resources.num_gpu
             worker_procs.append(
                 BaseDispatcher._wrap_into_remote_actor(
-                    ExecEngine, {'num_cpus':num_cpu, 'num_gpus':num_gpu}
+                    self.engine, {
+                        'num_cpus':num_cpu,
+                        'num_gpus':num_gpu,
+                        'max_concurrency':num_cpu
+                    }
                 ).remote(context)
             )
         return worker_procs
@@ -161,17 +169,32 @@ class BaseDispatcher:
 
 from .comm import Comm
 
+class GroupEngine(ExecEngine):
+    def __init__(self, context: Context):
+        '''
+        attribute:
+        `actor` and `environ` will be exposed to child class
+        '''
+        super().__init__(context)
+    def exec(self):
+        res = self.actor.recv_progress(self._dependency)
+        
+
 class GroupDispatcher(BaseDispatcher):
     def __init__(self,
                  contexts: List[Context],
-                 global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0}):
-        super().__init__(contexts, global_resources)
+                 global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0},
+                 engine=GroupEngine):
+        super().__init__(contexts, global_resources, engine)
 
     def launch(self):
-        worker_procs = super()._init_worker_procs()
+        worker_procs: List[RayWrappedEngine] = super()._init_worker_procs()
         comm = Comm(worker_procs)
         Comm.broadcast_futures(worker_procs)
         Comm.sync(worker_procs)
+
+        futures = [worker.exec.remote() for worker in worker_procs]
+        res = ray.get(futures)
 
 
 '''
