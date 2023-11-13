@@ -35,10 +35,6 @@ class ExecEngine:
     def __init__(self, context: Context):
         self.environ, self.actor = context.environ, context.actor
 
-        self._dependency = []
-
-    def _report_actor_progress(self):
-        return self.actor.report_progress()
 
     def _at_entry(self):
         # initiate habitat sensors, refer to doc in BaseActor for more info
@@ -51,10 +47,12 @@ class ExecEngine:
         action = 'turn_left'
         
         self.frame_cnt = 0
-        while self.frame_cnt < 4:
+        while True:
             observe = self.environ.step(action)
             action = self.actor.step(observe)
-            self.frame_cnt += 1
+            if action == 'terminate':
+                return
+            # self.frame_cnt += 1
 
     def _bind(self, actor, environ):
         '''
@@ -75,11 +73,6 @@ class ExecEngine:
             habitat_sim.Configuration(backend_cfg, [agent_config])
         )
 
-    def _config_dependency(self, futures: List):
-        self._dependency = futures
-
-    def _sync_barrier(self):
-        self._dependency = ray.get(self._dependency)
 
 
 DriverEngine = Any
@@ -152,7 +145,6 @@ class BaseDispatcher:
                     self.engine, {
                         'num_cpus':num_cpu,
                         'num_gpus':num_gpu,
-                        'max_concurrency':num_cpu
                     }
                 ).remote(context)
             )
@@ -168,33 +160,106 @@ class BaseDispatcher:
         pass
 
 from .comm import Comm
+from .schedule import _ScheduledFunc
+from collections import namedtuple
 
 class GroupEngine(ExecEngine):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context,
+                 comm_interval: int=1):
         '''
+        Args:
+        - context: context in which the engine runs on
+        - comm_interval: the interval of synchronizing and broadcasting worker's result
         attribute:
         `actor` and `environ` will be exposed to child class
         '''
         super().__init__(context)
-    def exec(self):
-        res = self.actor.recv_progress(self._dependency)
+        self._local_round = 0
+        self._comm_interval = comm_interval
+
+    def _report_actor_progress(self):
+        return self.actor.report_progress()
+    
+    def _config_dependency(self, futures: List):
+        self._dependency = futures
+
+    def _sync_barrier(self):
+        self._dependency = ray.get(self._dependency)
+
+    def exec(self, dependency=None):
+        action = None
+        if (self._local_round + 1) % self._comm_interval == 0:
+            # when reaches sink round, exec process will block here
+            self.actor.recv_progress(self._dependency)
+        observes = self.environ(action)
+        action = self.actor(observes)
+
+        self._local_round = (self._local_round + 1) % self._comm_interval
         
 
 class GroupDispatcher(BaseDispatcher):
+    ActorCheck = namedtuple('ActorCheck', ['state', 'comm_interval'])
+    
     def __init__(self,
                  contexts: List[Context],
                  global_resources: Dict[str, Scalar]={'num_cpu':1, 'num_gpu':0},
                  engine=GroupEngine):
+        check_res = GroupDispatcher._check_validation(contexts)
+        assert check_res.state, 'fail to launch group dispatcher because of improper actor class impl'
         super().__init__(contexts, global_resources, engine)
+
+        self._comm_interval = check_res.comm_interval
 
     def launch(self):
         worker_procs: List[RayWrappedEngine] = super()._init_worker_procs()
+        round_num = 0
         comm = Comm(worker_procs)
-        Comm.broadcast_futures(worker_procs)
-        Comm.sync(worker_procs)
 
+        while round_num < 5:
+            if (round_num + 1) % self._comm_interval == 0:
+                Comm.broadcast_futures(worker_procs)
+                Comm.sync(worker_procs)
+            
         futures = [worker.exec.remote() for worker in worker_procs]
         res = ray.get(futures)
+        round_num += 1
+    
+    @classmethod
+    def _check_validation(cls, contexts) -> ActorCheck:
+        '''
+        Prior to initializing the group dispatcher instance,
+        we do the following checks to guarantee the success of explorer simulation
+
+        - consistent report_progress interval
+        if invoke_interval is registered in subclass of GroupActor, 
+        the value of `num_calls` should be consistent over all actor instance in the context list
+        '''
+        interval_reg = []
+        for context in contexts:
+            group_actor = context.actor
+            report_method = getattr(group_actor, 'report_progress')
+            if 'under_hood_scheduler' in report_method.__dir__():
+                interval_reg.append(
+                    (True, report_method.under_hood_scheduler.get_invoke_interval())
+                )
+            else:
+                interval_reg.append((False, None))
+        is_registered = [state for state, _ in interval_reg]
+        assert any(is_registered) == all(is_registered), \
+        'Either none or all actors register report interval for communication'
+
+        if all(is_registered):
+            interval_size = [size for _, size in interval_reg]
+            assert len(set(interval_size)) == 1, 'every actor should have the same report interval'
+            
+            return GroupDispatcher.ActorCheck(True, set(interval_size)[0])
+        
+
+            
+                
+
+            
+                   
 
 
 '''
