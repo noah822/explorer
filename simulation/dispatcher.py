@@ -66,6 +66,8 @@ class ExecEngine:
         '''
         backend_cfg = habitat_sim.SimulatorConfiguration()
         backend_cfg.scene_id = environ._env_path
+        if environ._config_path is not None:
+            backend_cfg.scene_dataset_config_file = environ._config_path
 
         agent_config = habitat_sim.AgentConfiguration()
         agent_config.sensor_specifications = actor._sensors
