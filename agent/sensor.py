@@ -64,3 +64,17 @@ class DepthCamera(BaseSensor):
             self.position,
             habitat_sim.SensorType.DEPTH
         )
+
+class SemanticCamera(BaseSensor):
+    def __init__(self, name: str,
+                 resolution: List[int],
+                 position: SensorPos):
+        self.name = name
+        self.resolution = resolution
+        self.position = position
+    def init(self):
+        return _setup_habitat_camera(
+            self.name, self.resolution,
+            self.position,
+            habitat_sim.SensorType.SEMANTIC
+        )
