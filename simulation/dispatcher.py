@@ -51,9 +51,11 @@ class ExecEngine:
         action = 'turn_left'
         
         self.frame_cnt = 0
-        while self.frame_cnt < 4:
+        while True:
             observe = self.environ.step(action)
             action = self.actor.step(observe)
+            if action == 'terminate':
+                break
             self.frame_cnt += 1
 
     def _bind(self, actor, environ):
@@ -197,6 +199,18 @@ class GroupDispatcher(BaseDispatcher):
 
         futures = [worker.exec.remote() for worker in worker_procs]
         res = ray.get(futures)
+
+class DebugDispatcher(BaseDispatcher):
+    def __init__(self,
+                 contexts: List[Context]):
+        '''
+        launch one context engine in the main threading with entering ray layer
+        '''
+        super().__init__(contexts)
+    def launch(self):
+        context = next(iter(self.contexts))
+        engine = ExecEngine(context)
+        engine.exec()
 
 
 '''
