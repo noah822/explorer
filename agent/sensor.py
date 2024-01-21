@@ -1,28 +1,12 @@
-
 import habitat_sim
+import numpy as np
 
-from abc import abstractmethod, ABC
-from enum import Enum
 from typing import List
 
 class SensorPos:
     UP = habitat_sim.geo.UP
     LEFT = habitat_sim.geo.LEFT
     RIGHT = habitat_sim.geo.RIGHT
-
-
-
-def _setup_habitat_camera(uuid: str,
-                          resolution: List[int],
-                          position: SensorPos,
-                          type):
-    camera = habitat_sim.CameraSensorSpec()
-    camera.uuid = uuid
-    camera.resolution = resolution
-    camera.position = position
-    camera.sensor_type = type
-
-    return camera
 
 class BaseSensor:
     '''
@@ -36,45 +20,57 @@ class BaseSensor:
     def init(self):
         raise NotImplementedError()
 
-class RGBCamera(BaseSensor):
+class CameraSensor(BaseSensor):
     def __init__(self, name: str,
-                resolution: List[int],
-                position: SensorPos):
-        self.name = name
-        self.resolution = resolution
-        self.position = position
-    def init(self):
-        return _setup_habitat_camera(
-            self.name, self.resolution,
-            self.position,
-            habitat_sim.SensorType.COLOR
-        )
+                 camera_type: str,
+                 resolution: List[int],
+                 position: SensorPos):
+        super().__init__()
+        self.name, self.camera_type = name, camera_type
 
-class DepthCamera(BaseSensor):
-    def __init__(self, name: str,
-                resolution: List[int],
-                position: SensorPos):
-        self.name = name
+        h, w = resolution
+        assert (h == w), 'currently only support camera of square size'
         self.resolution = resolution
         self.position = position
+
+        # hfov is default to 90 degree for habitat CameraSensor
+        # focal is in unit of pixel number
+        self.focal = w/2 * 1/ np.tan((np.pi/2)/2) 
+
+
+    def init(self):
+        camera = habitat_sim.CameraSensorSpec()
+        camera.uuid = self.name
+        camera.resolution = self.resolution
+        camera.position = self.position
+        camera.sensor_type = self.camera_type
+        return camera
     
-    def init(self):
-        return _setup_habitat_camera(
-            self.name, self.resolution,
-            self.position,
-            habitat_sim.SensorType.DEPTH
+    
+
+class RGBCamera(CameraSensor):
+    def __init__(self, name: str,
+                resolution: List[int],
+                position: SensorPos):
+
+        super().__init__(
+            name, habitat_sim.SensorType.COLOR, resolution, position
         )
 
-class SemanticCamera(BaseSensor):
+
+class DepthCamera(CameraSensor):
+    def __init__(self, name: str,
+                resolution: List[int],
+                position: SensorPos):
+        super().__init__(
+            name, habitat_sim.SensorType.DEPTH, resolution, position
+        )
+    
+
+class SemanticCamera(CameraSensor):
     def __init__(self, name: str,
                  resolution: List[int],
                  position: SensorPos):
-        self.name = name
-        self.resolution = resolution
-        self.position = position
-    def init(self):
-        return _setup_habitat_camera(
-            self.name, self.resolution,
-            self.position,
-            habitat_sim.SensorType.SEMANTIC
+        super().__init__(
+            name, habitat_sim.SensorType.SEMANTIC, resolution, position
         )
