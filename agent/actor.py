@@ -3,22 +3,41 @@ import numpy as np
 
 from functools import partial
 from typing import List, Dict, Any
-
+from dataclasses import dataclass
+from collections import namedtuple
 
 from .sensor import BaseSensor
 from explorer.simulation.dispatcher import RayResources
+
 
 class BaseActor:
     '''
     standard protocols of explorer actors
     '''
+    # define namespace for agent's state and sensor's state
+    DEFAULT_ID = 0
+    AgentState = namedtuple('AgentState', ['position', 'orientation'])
+    SensorState = namedtuple('SensorState', ['position', 'orientation'])
+
     def __init__(self):
         super().__init__()
         self._ray_resources = RayResources()
         self._moves = None
         self._sensors = None
 
-    
+
+    def get_agent_state(self) -> AgentState:
+        agent_state = self._shared_sim.agents[BaseActor.DEFAULT_ID].state
+        return BaseActor.AgentState(agent_state.position, agent_state.rotation)
+
+    def get_sensors_state(self) -> Dict[str, SensorState]:
+        sensor_suite = self._shared_sim.agents[BaseActor.DEFAULT_ID].state.sensor_states
+        sensor_states = dict()
+        for name, state in sensor_suite.items():
+            sensor_states[name] = BaseActor.SensorState(state.position, state.rotation)
+        return sensor_suite
+
+
     def step(self, *args, **kwargs):
         '''
         main entry point of explorer actor

@@ -1,4 +1,3 @@
-import habitat_sim.utils.common as sim_utils
 from typing import Dict, final
 
 
@@ -32,24 +31,8 @@ class BaseEnv:
         
 
 class Env(BaseEnv):
-    TARGET_AGENT = 0
     def __init__(self, path, config=None):
         super().__init__(path, config)
-    def post_process(self, observes: Dict):
-        '''
-        besides sensor data, by default, Env will also expose agent's
-        - position: [x, y, z]
-        - rotation: rotated angle in radian about y-axis
-        '''
-        agent_position = self._shared_sim.agents[Env.TARGET_AGENT].state.position
-        agent_quat = self._shared_sim.agents[Env.TARGET_AGENT].state.rotation
-        radian, rotate_vec = sim_utils.quat_to_angle_axis(agent_quat)
-        if rotate_vec[1] < 0:
-            radian = -radian
-        observes['position'] = agent_position
-        observes['rotation'] = radian
-        return observes
-
 
 try:
     import numpy as np
