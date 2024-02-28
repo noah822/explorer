@@ -35,12 +35,15 @@ class TopDownMap:
     RAW_MAP_DTYPE = np.uint8
     def __init__(self,
                  size: List[int],
-                 sprite: Union[str, np.ndarray]=DEFAULT_SPRITE_PATH,
+                 sprite: Optional[Union[str, np.ndarray]]=None,
                  sprite_size: List[int]=None,
                  track_trajactory: bool=True):
         assert len(size) == 2, 'top down map can only be 2D'
 
-        if type(sprite) == str:
+        if sprite is None:
+            # pre-rotate default sprite image to align its heading to '+y'
+            sprite_content = ndimage.rotate(cv2.imread(DEFAULT_SPRITE_PATH), angle=180, reshape=False)
+        elif type(sprite) == str:
             # save in BGR channel space
             sprite_content = cv2.imread(sprite)
         elif type(sprite) == np.ndarray:
@@ -65,7 +68,7 @@ class TopDownMap:
 
     
     def init_sprite_at(self, pos: List[int], rot: float):
-        # by default, sprite heads towards +y initially
+        # by default, sprite heads towards +x initially
         (self.sprite.x, self.sprite.y), self.sprite.rot = pos, rot
 
         covered_patch = self._draw_patch(self.sprite.content, pos, rot)
