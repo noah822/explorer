@@ -1,13 +1,13 @@
 import numpy as np
 
+import habitat_sim.utils.common as sim_utils
 
+from collections import namedtuple
 from functools import partial
 from typing import List, Dict, Any
-from dataclasses import dataclass
-from collections import namedtuple
 
-from .sensor import BaseSensor
 from explorer.simulation.dispatcher import RayResources
+from .sensor import BaseSensor
 
 
 class BaseActor:
@@ -16,8 +16,8 @@ class BaseActor:
     '''
     # define namespace for agent's state and sensor's state
     DEFAULT_ID = 0
-    AgentState = namedtuple('AgentState', ['position', 'orientation'])
-    SensorState = namedtuple('SensorState', ['position', 'orientation'])
+    AgentState = namedtuple('AgentState', ['position', 'rotation'])
+    SensorState = namedtuple('SensorState', ['position', 'rotation'])
 
     def __init__(self):
         super().__init__()
@@ -27,15 +27,23 @@ class BaseActor:
 
 
     def get_agent_state(self) -> AgentState:
+        '''
+        Returns:
+           position: ndarray, position in world frame
+           rotation: ndarray, quaternion in scalar-last (x, y, z, w) format
+        '''
         agent_state = self._shared_sim.agents[BaseActor.DEFAULT_ID].state
-        return BaseActor.AgentState(agent_state.position, agent_state.rotation)
+        return BaseActor.AgentState(
+            agent_state.position,
+            sim_utils.quat_to_coeffs(agent_state.rotation),
+        )
 
     def get_sensors_state(self) -> Dict[str, SensorState]:
         sensor_suite = self._shared_sim.agents[BaseActor.DEFAULT_ID].state.sensor_states
         sensor_states = dict()
         for name, state in sensor_suite.items():
-            sensor_states[name] = BaseActor.SensorState(state.position, state.rotation)
-        return sensor_suite
+            sensor_states[name] = BaseActor.SensorState(state.position, sim_utils.quat_to_coeffs(state.rotation))
+        return sensor_states 
 
 
     def step(self, *args, **kwargs):
